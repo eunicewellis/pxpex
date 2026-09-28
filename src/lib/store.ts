@@ -148,11 +148,17 @@ export async function getUsers(): Promise<AdminUser[]> {
 }
 
 export async function saveUsers(users: AdminUser[]): Promise<void> {
+  let ok: boolean;
   if (hasPostgres()) {
-    await pgSet(KEY_USERS, users);
-    return;
+    ok = await pgSet(KEY_USERS, users);
+  } else {
+    ok = await writeJson(USERS_FILE, users);
   }
-  await writeJson(USERS_FILE, users);
+  if (!ok) {
+    throw new Error(
+      "Account could not be saved to storage. In production (Vercel) the filesystem is read-only, so add a POSTGRES_URL (Vercel Postgres / Neon) — check the server logs for '[store] write failed'."
+    );
+  }
 }
 
 

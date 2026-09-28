@@ -87,7 +87,17 @@ export async function createUser(
 
   const users = await getUsers();
   users.push(user);
-  await saveUsers(users);
+  try {
+    await saveUsers(users);
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not save your account. Please try again.",
+    };
+  }
 
   return { ok: true, user };
 }
