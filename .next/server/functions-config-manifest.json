@@ -1,1 +1,0 @@
-{"version":1,"functions":{"/api/auth/change-password":{},"/api/settings":{},"/api/uploads/[name]":{},"/about":{},"/api/shipments":{},"/faq":{},"/contact":{},"/api/shipments/[id]":{},"/privacy":{},"/track":{},"/terms":{},"/quote":{},"/admin/settings":{},"/services":{},"/admin/shipments/new":{},"/admin/shipments/[id]":{},"/admin":{},"/track/[courier]":{}}}
