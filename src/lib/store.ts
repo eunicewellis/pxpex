@@ -1,0 +1,158 @@
+import { readJson, writeJson } from "./db";
+import { seedIfEmpty } from "./seed";
+import { ensureSchema, hasPostgres, sql } from "./postgres";
+import type {
+  AdminRecord,
+  AdminUser,
+  Shipment,
+  SiteSettings,
+  StatusStep,
+} from "@/types";
+
+const SHIPMENTS_FILE = "shipments.json";
+const SETTINGS_FILE = "settings.json";
+const ADMIN_FILE = "admin.json";
+const USERS_FILE = "users.json";
+
+// Postgres keys for the single key/value table.
+const KEY_SHIPMENTS = "shipments";
+const KEY_SETTINGS = "site";
+const KEY_ADMIN = "admin";
+const KEY_USERS = "users";
+
+export const DEFAULT_STATUS_STEPS: StatusStep[] = [
+  { key: "order_created", label: "Order Created" },
+  { key: "picked_up", label: "Picked Up" },
+  { key: "in_transit", label: "In Transit" },
+  { key: "out_for_delivery", label: "Out for Delivery" },
+  { key: "delivered", label: "Delivered" },
+];
+
+export const DEFAULT_SETTINGS: SiteSettings = {
+  companyName: "Carters Logistics",
+  companyEmail: "support@carterslogistic.com",
+  contactCtaText: "Contact Customer Care",
+  trackingTitle: "Track Your Shipment",
+  trackingSubtitle:
+    "Enter your tracking number to see the latest status and delivery details of your package.",
+  statusSteps: DEFAULT_STATUS_STEPS,
+};
+
+async function pgGet<T>(key: string): Promise<T | null> {
+  try {
+    await ensureSchema();
+    const { rows } = await sql`SELECT value FROM app_data WHERE key = ${key}`;
+    return (rows[0]?.value as T | undefined) ?? null;
+  } catch (err) {
+    console.error("[store] Postgres read failed:", err);
+    return null;
+  }
+}
+
+async function pgSet(key: string, value: unknown): Promise<boolean> {
+  try {
+    await ensureSchema();
+    await sql`INSERT INTO app_data (key, value) VALUES (${key}, ${
+      JSON.stringify(value) as unknown as never
+    }::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+    return true;
+  } catch (err) {
+    console.error("[store] Postgres write failed:", err);
+    return false;
+  }
+}
+
+// ---------- Shipments ----------
+
+export async function getShipments(): Promise<Shipment[]> {
+  if (hasPostgres()) {
+    const stored = await pgGet<Shipment[]>(KEY_SHIPMENTS);
+    return stored ?? [];
+  }
+  await seedIfEmpty();
+  return readJson<Shipment[]>(SHIPMENTS_FILE, []);
+}
+
+/** Shipments belonging to a single admin user (multi-admin scoping). */
+export async function getShipmentsByOwner(ownerId: string): Promise<Shipment[]> {
+  const shipments = await getShipments();
+  return shipments.filter((s) => s.ownerId === ownerId);
+}
+
+export async function saveShipments(list: Shipment[]): Promise<void> {
+  let ok: boolean;
+  if (hasPostgres()) {
+    ok = await pgSet(KEY_SHIPMENTS, list);
+  } else {
+    ok = await writeJson(SHIPMENTS_FILE, list);
+  }
+  if (!ok) {
+    throw new Error(
+      "Shipment could not be saved to storage. Check the server logs for '[store] Postgres write failed' and verify your database connection (POSTGRES_URL)."
+    );
+  }
+}
+
+// ---------- Settings ----------
+
+export async function getSettings(): Promise<SiteSettings> {
+  if (hasPostgres()) {
+    const stored = await pgGet<Partial<SiteSettings>>(KEY_SETTINGS);
+    return {
+      ...DEFAULT_SETTINGS,
+      ...stored,
+      statusSteps: stored?.statusSteps ?? DEFAULT_SETTINGS.statusSteps,
+    };
+  }
+  const s = await readJson<Partial<SiteSettings>>(SETTINGS_FILE, {});
+  return {
+    ...DEFAULT_SETTINGS,
+    ...s,
+    statusSteps: s.statusSteps ?? DEFAULT_SETTINGS.statusSteps,
+  };
+}
+
+export async function saveSettings(settings: SiteSettings): Promise<void> {
+  if (hasPostgres()) {
+    await pgSet(KEY_SETTINGS, settings);
+    return;
+  }
+  await writeJson(SETTINGS_FILE, settings);
+}
+
+// ---------- Admin credentials ----------
+
+export async function getAdminRecord(): Promise<AdminRecord | null> {
+  if (hasPostgres()) {
+    return pgGet<AdminRecord>(KEY_ADMIN);
+  }
+  return readJson<AdminRecord | null>(ADMIN_FILE, null);
+}
+
+export async function saveAdminRecord(record: AdminRecord): Promise<void> {
+  if (hasPostgres()) {
+    await pgSet(KEY_ADMIN, record);
+    return;
+  }
+  await writeJson(ADMIN_FILE, record);
+}
+
+// ---------- Admin users (multi-admin signup/login) ----------
+
+export async function getUsers(): Promise<AdminUser[]> {
+  if (hasPostgres()) {
+    const stored = await pgGet<AdminUser[]>(KEY_USERS);
+    return stored ?? [];
+  }
+  return readJson<AdminUser[]>(USERS_FILE, []);
+}
+
+export async function saveUsers(users: AdminUser[]): Promise<void> {
+  if (hasPostgres()) {
+    await pgSet(KEY_USERS, users);
+    return;
+  }
+  await writeJson(USERS_FILE, users);
+}
+
+
